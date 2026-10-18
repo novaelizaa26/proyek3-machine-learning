@@ -1,3 +1,4 @@
+import io
 import os
 import glob
 import warnings
@@ -215,6 +216,14 @@ def new_fig(w=6.4, h=4.2):
     return fig, ax
 
 
+def show_fig(fig, width):
+    """Tampilkan grafik matplotlib dengan lebar tetap (px), bukan melebar penuh."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=200, transparent=True, bbox_inches="tight")
+    plt.close(fig)
+    st.image(buf.getvalue(), width=width)
+
+
 tab_supervised, tab_unsupervised = st.tabs(["Supervised Learning", "Unsupervised Learning"])
 
 # ============================================================================
@@ -401,7 +410,7 @@ with tab_supervised:
                         )
 
                         section_title("Aktual vs Prediksi")
-                        fig, ax = new_fig()
+                        fig, ax = new_fig(5.2, 3.5)
                         ax.scatter(y_test, predictions, alpha=0.7, color=INDIGO, s=26, edgecolors="white", linewidths=0.5)
                         low = min(float(np.min(y_test)), float(np.min(predictions)))
                         high = max(float(np.max(y_test)), float(np.max(predictions)))
@@ -409,8 +418,7 @@ with tab_supervised:
                         ax.set_xlabel("Nilai aktual")
                         ax.set_ylabel("Nilai prediksi")
                         ax.legend(frameon=False, labelcolor=MUTED)
-                        st.pyplot(fig)
-                        plt.close(fig)
+                        show_fig(fig, 460)
                     else:
                         acc = accuracy_score(y_test, predictions)
                         prec = precision_score(y_test, predictions, average="weighted", zero_division=0)
@@ -431,7 +439,7 @@ with tab_supervised:
                         labels_sorted = sorted(y.unique(), key=lambda v: (len(v), v))
                         cm = confusion_matrix(y_test, predictions, labels=labels_sorted)
                         cmap = LinearSegmentedColormap.from_list("greys", ["#F3F4F6", "#6B7280"])
-                        fig, ax = new_fig(5.2, 4.2)
+                        fig, ax = new_fig(4.0, 3.3)
                         ax.grid(False)
                         ax.imshow(cm, cmap=cmap)
                         ax.set_xticks(range(len(labels_sorted)))
@@ -446,10 +454,9 @@ with tab_supervised:
                                 ax.text(
                                     j, i, int(cm[i, j]), ha="center", va="center",
                                     color="white" if cm[i, j] > thresh else INK,
-                                    fontweight="bold",
+                                    fontweight="bold", fontsize=8 if len(labels_sorted) > 8 else 10,
                                 )
-                        st.pyplot(fig)
-                        plt.close(fig)
+                        show_fig(fig, 380)
                         st.caption("Baris = kelas aktual, kolom = kelas hasil prediksi.")
 
                     results = pd.DataFrame({
@@ -601,7 +608,7 @@ with tab_unsupervised:
                                 svd = TruncatedSVD(n_components=2, random_state=int(seed))
                                 projection = svd.fit_transform(matrix)
                                 centers = svd.transform(kmeans.cluster_centers_)
-                                fig, ax = new_fig(6.6, 4.6)
+                                fig, ax = new_fig(5.0, 3.5)
                                 for cid in range(int(n_clusters)):
                                     mask = labels == cid
                                     ax.scatter(
@@ -618,22 +625,20 @@ with tab_unsupervised:
                                 ax.set_xlabel("Komponen 1")
                                 ax.set_ylabel("Komponen 2")
                                 ax.legend(frameon=False, labelcolor=MUTED, fontsize=8, ncol=2)
-                                st.pyplot(fig)
-                                plt.close(fig)
+                                show_fig(fig, 500)
                             except Exception:
                                 st.info("Visualisasi 2D tidak tersedia untuk konfigurasi ini.")
                         with g2:
                             st.markdown("**Jumlah berita per cluster**")
                             counts = work["cluster"].value_counts().sort_index()
-                            fig, ax = new_fig(4, 4.6)
+                            fig, ax = new_fig(3.0, 3.5)
                             ax.barh(
                                 [f"Cluster {i}" for i in counts.index], counts.values,
                                 color=[CLUSTER_COLORS[i % len(CLUSTER_COLORS)] for i in counts.index],
                             )
                             ax.invert_yaxis()
                             ax.grid(axis="y", visible=False)
-                            st.pyplot(fig)
-                            plt.close(fig)
+                            show_fig(fig, 300)
 
                         section_title("Contoh berita per cluster")
                         for cluster_id in sorted(work["cluster"].unique()):

@@ -96,6 +96,14 @@ st.markdown(
     [data-baseweb="select"] > div, .stNumberInput [data-baseweb="input"],
     .stNumberInput [data-baseweb="base-input"] {{ background: #ffffff; border-radius: 4px; }}
 
+        /* Panel pengaturan dibuat ringkas */
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlock"] {{ gap: 0.4rem; }}
+    [data-testid="stVerticalBlockBorderWrapper"] label p {{ font-size: 0.8rem; }}
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stWidgetLabel"] {{ margin-bottom: 0; min-height: 0; }}
+    [data-testid="stFileUploaderDropzone"] {{ padding: 0.5rem 0.75rem; }}
+    [data-testid="stFileUploaderDropzoneInstructions"] small {{ display: none; }}
+    [data-testid="stVerticalBlockBorderWrapper"] .stSlider {{ padding-bottom: 0; }}
+
     /* Judul bagian */
     .section-title {{ font-size: 1rem; font-weight: 700; color: #1F2937; margin: 16px 0 8px 0; }}
 
@@ -182,11 +190,8 @@ def section_title(text):
     st.markdown(f'<div class="section-title">{text}</div>', unsafe_allow_html=True)
 
 
-def panel_title(title, sub):
-    st.markdown(
-        f'<div class="panel-title">{title}</div><div class="panel-sub">{sub}</div>',
-        unsafe_allow_html=True,
-    )
+def panel_title(title, sub=None):
+    st.markdown(f'<div class="panel-title">{title}</div>', unsafe_allow_html=True)
 
 
 def empty_state(title, text):
@@ -280,10 +285,13 @@ with tab_supervised:
                     algo_options = ["Random Forest", "Logistic Regression"]
                 algorithm = st.selectbox("Algoritma", algo_options)
 
+                depth_col, seed_col = st.columns(2)
                 max_depth = None
-                if algorithm == "Random Forest":
-                    max_depth = st.number_input("max_depth", min_value=1, max_value=50, value=5, step=1)
-                random_seed = st.number_input("Random seed", 0, 9999, 42, 1)
+                with depth_col:
+                    if algorithm == "Random Forest":
+                        max_depth = st.number_input("max_depth", min_value=1, max_value=50, value=5, step=1)
+                with seed_col:
+                    random_seed = st.number_input("Random seed", 0, 9999, 42, 1)
 
                 train_clicked = st.button("Mulai Training", key="train_supervised")
             else:
@@ -507,7 +515,11 @@ with tab_unsupervised:
                         text_cols,
                         index=text_cols.index("text") if "text" in text_cols else 0,
                     )
-                    st.selectbox("Algoritma", ["K-Means"])
+                    algo_col, seed_col = st.columns(2)
+                    with algo_col:
+                        st.selectbox("Algoritma", ["K-Means"])
+                    with seed_col:
+                        seed = st.number_input("Random seed", 0, 9999, 42, 1, key="news_seed")
                     n_clusters = st.slider("Jumlah cluster (K)", 2, 10, 4, 1)
                     lo_docs = min(200, max(1, len(news_df)))
                     hi_docs = max(min(3000, len(news_df)), lo_docs + 1)
@@ -521,7 +533,6 @@ with tab_unsupervised:
                     max_features = st.select_slider(
                         "Batas fitur TF-IDF", options=[1000, 2000, 3000, 5000], value=2000
                     )
-                    seed = st.number_input("Random seed", 0, 9999, 42, 1, key="news_seed")
                     cluster_clicked = st.button("Mulai Clustering", key="run_clustering")
 
     with right:

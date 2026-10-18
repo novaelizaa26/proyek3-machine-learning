@@ -614,7 +614,7 @@ with tab_unsupervised:
 
                         g1, g2 = st.columns([1.7, 1], gap="large")
                         with g1:
-                            st.markdown("**Sebaran cluster (proyeksi 2D)**")
+                            st.markdown("**Scatter Plot **")
                             try:
                                 svd = TruncatedSVD(n_components=2, random_state=int(seed))
                                 projection = svd.fit_transform(matrix)

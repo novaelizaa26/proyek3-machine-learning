@@ -138,11 +138,7 @@ st.markdown(
 
 st.markdown('<div class="app-header">Machine Learning Experiment</div>', unsafe_allow_html=True)
 
-SUPERVISED_CANDIDATES = [
-    "customer_satisfaction_data (1).csv",
-    "customer_satisfaction_data 1.csv",
-    "customer_satisfaction_data.csv",
-]
+SUPERVISED_CANDIDATES = ["Customer_satisfaction_data_bersih.csv"]
 UNSUPERVISED_CANDIDATES = ["dataset_berita_cluster.csv"]
 
 

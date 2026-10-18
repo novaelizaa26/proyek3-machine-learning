@@ -1,5 +1,6 @@
+import os
+import io
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -11,224 +12,385 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.impute import SimpleImputer
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    confusion_matrix, ConfusionMatrixDisplay, classification_report,
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
     silhouette_score,
+    adjusted_rand_score,
 )
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
+from sklearn.decomposition import TruncatedSVD
 
 warnings.filterwarnings("ignore")
-ROOT = Path(__file__).resolve().parent
 
-st.set_page_config(page_title="Machine Learning Experiment", page_icon="🧪", layout="wide")
-st.markdown("""
-<style>
-.block-container {padding-top:1.3rem; max-width:1400px}
-div[data-testid="stMetric"] {background:white;border:1px solid #e5e7eb;padding:12px;border-radius:10px}
-</style>
-""", unsafe_allow_html=True)
-st.title("🧪 Machine Learning Experiment")
-st.caption("Supervised Learning untuk klasifikasi dan Unsupervised Learning untuk pengelompokan pelanggan.")
-mode = st.radio("Pilih eksperimen", ["Supervised Learning", "Unsupervised Learning", "Tentang"], horizontal=True)
+st.set_page_config(
+    page_title="Proyek 3 Machine Learning",
+    page_icon="🤖",
+    layout="wide",
+)
 
-def repo_csv(names):
-    for name in names:
-        p = ROOT / name
-        if p.exists():
-            try:
-                return pd.read_csv(p), name
-            except Exception:
-                pass
-    return None, None
+st.title("🤖 Proyek 3 — Aplikasi Machine Learning")
+st.write(
+    "Aplikasi ini menyediakan eksperimen **Supervised Learning** untuk prediksi "
+    "kepuasan pelanggan dan **Unsupervised Learning** untuk pengelompokan teks berita."
+)
 
-def preview(df, n=5):
-    st.dataframe(df.head(n), use_container_width=True, hide_index=True)
+# Dataset dapat diletakkan di folder yang sama dengan app.py pada repositori GitHub.
+SUPERVISED_PATH = "customer_satisfaction_data (1).csv"
+UNSUPERVISED_PATH = "dataset_berita_cluster.csv"
 
-if mode == "Supervised Learning":
-    st.header("Supervised Learning")
-    st.subheader("Klasifikasi Data")
-    st.write("Pilih kolom target berlabel. Random Forest akan dievaluasi dengan Accuracy, Precision, Recall, F1-Score, dan Confusion Matrix.")
-    base, base_name = repo_csv(["iris.csv", "Iris.csv", "customer_satisfaction_data (1).csv", "customer_satisfaction_data.csv"])
-    upload = st.file_uploader("Unggah dataset klasifikasi (CSV)", type="csv", key="sup_upload")
-    if upload:
-        try:
-            df, data_name = pd.read_csv(upload), upload.name
-        except Exception as e:
-            st.error(f"CSV tidak dapat dibaca: {e}")
-            st.stop()
+
+def read_csv_safely(uploaded_file, default_path):
+    """Baca file unggahan; jika tidak ada, coba baca dataset di repositori."""
+    if uploaded_file is not None:
+        return pd.read_csv(uploaded_file)
+    if os.path.exists(default_path):
+        return pd.read_csv(default_path)
+    return None
+
+
+def make_one_hot_encoder():
+    # Mendukung versi scikit-learn yang lebih baru maupun lama.
+    try:
+        return OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+    except TypeError:
+        return OneHotEncoder(handle_unknown="ignore", sparse=False)
+
+
+tab_supervised, tab_unsupervised, tab_about = st.tabs(
+    ["📈 Supervised Learning", "📰 Unsupervised Learning", "ℹ️ Tentang"]
+)
+
+with tab_supervised:
+    st.header("Prediksi Skor Kepuasan Pelanggan")
+    st.write(
+        "Dataset yang disiapkan menggunakan kolom **Satisfaction Score** sebagai "
+        "target numerik. Karena itu, eksperimen utama menggunakan model regresi."
+    )
+
+    supervised_upload = st.file_uploader(
+        "Unggah dataset pelanggan CSV (opsional jika file sudah ada di GitHub)",
+        type=["csv"],
+        key="supervised_upload",
+    )
+    customer_df = read_csv_safely(supervised_upload, SUPERVISED_PATH)
+
+    if customer_df is None:
+        st.warning(
+            "Dataset pelanggan belum ditemukan. Unggah file "
+            "`customer_satisfaction_data (1).csv` di atas, atau tambahkan file itu "
+            "ke repositori GitHub pada folder yang sama dengan app.py."
+        )
     else:
-        df, data_name = base, base_name
-
-    if df is None:
-        st.warning("Unggah dataset klasifikasi CSV. Contoh paling sederhana adalah Iris dengan kolom target species.")
-        st.info("File customer satisfaction yang sudah ada bisa dicoba jika memiliki kolom kategori sebagai target. Jika targetnya angka kontinu, gunakan dataset klasifikasi seperti Iris.")
-    else:
-        df.columns = [str(c).strip() for c in df.columns]
-        st.success(f"Dataset dimuat: {data_name} — {len(df):,} baris dan {len(df.columns)} kolom.")
+        st.success(f"Dataset dimuat: {customer_df.shape[0]:,} baris dan {customer_df.shape[1]} kolom.")
         with st.expander("Lihat contoh data"):
-            preview(df, 8)
-        cols = list(df.columns)
-        preferred = next((i for i,c in enumerate(cols) if c.lower() in ["species","class","target","label","satisfaction level","satisfaction_level","satisfaction category"]), 0)
-        left, right = st.columns([1, 2], gap="large")
-        with left:
-            st.markdown("#### Pengaturan")
-            target = st.selectbox("Target column", cols, index=preferred)
-            test_pct = st.slider("Test size (%)", 10, 40, 20, 5)
-            trees = st.slider("Jumlah pohon", 50, 300, 100, 50)
-            depth_choice = st.selectbox("max_depth", ["None", "3", "5", "10", "20"], index=2)
-            run = st.button("🚀 Mulai Training", type="primary")
-        with right:
-            st.markdown("#### Cuplikan Dataset")
-            preview(df, 5)
+            st.dataframe(customer_df.head(10), use_container_width=True)
+            st.write("Jumlah nilai kosong per kolom:")
+            st.dataframe(customer_df.isna().sum().rename("Nilai kosong"))
 
-        if run:
-            work = df.dropna(subset=[target]).copy()
-            y = work[target].astype(str)
-            if len(work) < 10 or y.nunique() < 2:
-                st.error("Dibutuhkan setidaknya 10 baris dan minimal 2 kelas target.")
-                st.stop()
-            if y.nunique() > max(20, int(len(work)*0.5)):
-                st.error("Target memiliki terlalu banyak nilai unik. Pilih kolom kategori/kelas, bukan ID atau nilai kontinu.")
-                st.stop()
-            X = work.drop(columns=[target]).dropna(axis=1, how="all")
-            if X.empty:
-                st.error("Tidak ada kolom fitur selain target.")
-                st.stop()
-            num = X.select_dtypes(include=np.number).columns.tolist()
-            cat = [c for c in X.columns if c not in num]
-            transformers = []
-            if num:
-                transformers.append(("numeric", Pipeline([
-                    ("imputer", SimpleImputer(strategy="median")),
-                    ("scaler", StandardScaler()),
-                ]), num))
-            if cat:
-                transformers.append(("categorical", Pipeline([
-                    ("imputer", SimpleImputer(strategy="most_frequent")),
-                    ("onehot", OneHotEncoder(handle_unknown="ignore")),
-                ]), cat))
-            prep = ColumnTransformer(transformers=transformers)
-            depth = None if depth_choice == "None" else int(depth_choice)
-            model = Pipeline([
-                ("preprocess", prep),
-                ("classifier", RandomForestClassifier(n_estimators=trees, max_depth=depth, random_state=42, class_weight="balanced")),
-            ])
-            stratify = y if y.value_counts().min() >= 2 else None
-            try:
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_pct/100, random_state=42, stratify=stratify)
-                model.fit(X_train, y_train)
-                pred = model.predict(X_test)
-            except Exception as e:
-                st.error(f"Training gagal: {e}")
-                st.stop()
+        target_options = [
+            c for c in customer_df.columns
+            if pd.api.types.is_numeric_dtype(customer_df[c])
+        ]
+        default_target = (
+            target_options.index("Satisfaction Score")
+            if "Satisfaction Score" in target_options
+            else 0
+        )
 
-            st.divider()
-            st.subheader("Hasil Evaluasi")
-            a,b,c,d = st.columns(4)
-            a.metric("Accuracy", f"{accuracy_score(y_test,pred):.3f}")
-            b.metric("Precision", f"{precision_score(y_test,pred,average='weighted',zero_division=0):.3f}")
-            c.metric("Recall", f"{recall_score(y_test,pred,average='weighted',zero_division=0):.3f}")
-            d.metric("F1-Measure", f"{f1_score(y_test,pred,average='weighted',zero_division=0):.3f}")
-            labels = sorted(pd.Series(y_test).unique().tolist())
-            cm = confusion_matrix(y_test, pred, labels=labels)
-            fig, ax = plt.subplots(figsize=(6,4))
-            ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels).plot(ax=ax, cmap="Blues", colorbar=False, xticks_rotation=35)
-            ax.set_title("Confusion Matrix")
-            fig.tight_layout()
-            st.pyplot(fig)
-            plt.close(fig)
-            with st.expander("Laporan klasifikasi lengkap"):
-                st.dataframe(pd.DataFrame(classification_report(y_test,pred,zero_division=0,output_dict=True)).transpose(), use_container_width=True)
-            result = pd.DataFrame({"Nilai aktual": y_test.reset_index(drop=True), "Hasil prediksi": pd.Series(pred)})
-            st.download_button("Unduh hasil prediksi CSV", result.to_csv(index=False).encode("utf-8"), "hasil_supervised.csv", "text/csv")
-
-elif mode == "Unsupervised Learning":
-    st.header("Unsupervised Learning")
-    st.subheader("Clustering Pelanggan dengan K-Means")
-    st.write("Pilih setidaknya dua fitur numerik pelanggan. Model mengelompokkan data tanpa membutuhkan kolom target.")
-    base, base_name = repo_csv(["Mall_Customers.csv", "mall_customers.csv", "customer_data.csv", "customer_satisfaction_data (1).csv", "customer_satisfaction_data.csv"])
-    upload = st.file_uploader("Unggah dataset pelanggan (CSV)", type="csv", key="cluster_upload")
-    if upload:
-        try:
-            df, data_name = pd.read_csv(upload), upload.name
-        except Exception as e:
-            st.error(f"CSV tidak dapat dibaca: {e}")
-            st.stop()
-    else:
-        df, data_name = base, base_name
-
-    if df is None:
-        st.warning("Unggah dataset pelanggan dengan minimal dua kolom numerik.")
-        st.info("Dataset tambahan yang disarankan: Mall_Customers.csv, biasanya memiliki CustomerID, Gender, Age, Annual Income (k$), dan Spending Score (1-100).")
-    else:
-        df.columns = [str(c).strip() for c in df.columns]
-        st.success(f"Dataset dimuat: {data_name} — {len(df):,} baris dan {len(df.columns)} kolom.")
-        with st.expander("Lihat contoh data"):
-            preview(df, 8)
-        numeric = df.select_dtypes(include=np.number).columns.tolist()
-        features_default = [c for c in numeric if c.lower() not in ["id","customerid","customer_id","unnamed: 0"]]
-        if len(features_default) < 2:
-            st.warning("Dataset harus mempunyai minimal dua kolom numerik yang dapat dianalisis.")
+        if not target_options:
+            st.error("Tidak ditemukan kolom target numerik untuk regresi.")
         else:
-            left, right = st.columns([1,2], gap="large")
-            with left:
-                st.markdown("#### Pengaturan")
-                features = st.multiselect("Fitur yang dianalisis", features_default, default=features_default[:2])
-                st.text_input("Algorithm", value="K-Means", disabled=True)
-                k = st.slider("Jumlah cluster (K)", 2, 10, 3)
-                run = st.button("🚀 Mulai Clustering", type="primary")
-            with right:
-                st.markdown("#### Cuplikan Dataset")
-                preview(df, 5)
-            if run:
-                if len(features) < 2:
-                    st.error("Pilih minimal dua fitur numerik.")
-                    st.stop()
-                work = df[features].replace([np.inf,-np.inf], np.nan).dropna()
-                if len(work) <= k:
-                    st.error(f"Jumlah baris valid harus lebih besar dari K={k}.")
-                    st.stop()
-                scaled = StandardScaler().fit_transform(work)
-                try:
-                    labels = KMeans(n_clusters=k, random_state=42, n_init=10).fit_predict(scaled)
-                except Exception as e:
-                    st.error(f"Clustering gagal: {e}")
-                    st.stop()
-                score = silhouette_score(scaled, labels) if len(set(labels)) > 1 and len(set(labels)) < len(labels) else None
-                st.divider()
-                st.subheader("Hasil Clustering")
-                a,b,c = st.columns(3)
-                a.metric("Data dianalisis", f"{len(work):,}")
-                b.metric("Jumlah cluster", str(len(set(labels))))
-                c.metric("Silhouette Score", f"{score:.3f}" if score is not None else "N/A")
-                result = work.copy()
-                result["Cluster"] = labels
-                fig, ax = plt.subplots(figsize=(8,4.5))
-                ax.scatter(work[features[0]], work[features[1]], c=labels, cmap="tab10", alpha=.8, edgecolors="white", linewidths=.4)
-                ax.set_xlabel(features[0]); ax.set_ylabel(features[1]); ax.set_title("Hasil K-Means Clustering"); ax.grid(alpha=.2)
-                fig.tight_layout()
-                st.pyplot(fig)
-                plt.close(fig)
-                st.markdown("#### Ringkasan tiap cluster")
-                st.dataframe(result.groupby("Cluster")[features].mean().round(2), use_container_width=True)
-                st.markdown("#### Data dengan label cluster")
-                st.dataframe(result.head(100), use_container_width=True, hide_index=True)
-                st.download_button("Unduh hasil clustering CSV", result.to_csv(index=False).encode("utf-8"), "hasil_clustering_pelanggan.csv", "text/csv")
+            target = st.selectbox(
+                "Pilih kolom target yang ingin diprediksi",
+                target_options,
+                index=default_target,
+            )
+            exclude_id = st.checkbox(
+                "Keluarkan kolom ID pelanggan jika tersedia",
+                value=True,
+                help="Kolom ID biasanya hanya penanda, bukan fitur prediksi.",
+            )
+            feature_candidates = [c for c in customer_df.columns if c != target]
+            if exclude_id:
+                feature_candidates = [
+                    c for c in feature_candidates
+                    if c.strip().lower() not in {"customer id", "customer_id", "id"}
+                ]
+            selected_features = st.multiselect(
+                "Pilih fitur prediksi",
+                feature_candidates,
+                default=feature_candidates,
+            )
 
-else:
+            model_choice = st.selectbox(
+                "Pilih algoritma regresi",
+                ["Random Forest Regressor", "Linear Regression"],
+            )
+            test_size = st.slider(
+                "Persentase data uji (%)", min_value=10, max_value=40, value=20, step=5
+            )
+            random_seed = st.number_input(
+                "Random seed", min_value=0, max_value=9999, value=42, step=1
+            )
+
+            if st.button("🚀 Latih dan evaluasi model", key="train_supervised"):
+                if not selected_features:
+                    st.error("Pilih setidaknya satu fitur prediksi.")
+                else:
+                    data = customer_df[selected_features + [target]].copy()
+                    data[target] = pd.to_numeric(data[target], errors="coerce")
+                    data = data.dropna(subset=[target])
+
+                    if len(data) < 10:
+                        st.error("Data berlabel yang tersedia terlalu sedikit untuk dibagi menjadi data latih dan uji.")
+                    else:
+                        X = data[selected_features]
+                        y = data[target]
+                        numeric_features = X.select_dtypes(include=["number"]).columns.tolist()
+                        categorical_features = [c for c in X.columns if c not in numeric_features]
+
+                        numeric_pipeline = Pipeline(
+                            steps=[
+                                ("imputer", SimpleImputer(strategy="median")),
+                                ("scaler", StandardScaler()),
+                            ]
+                        )
+                        categorical_pipeline = Pipeline(
+                            steps=[
+                                ("imputer", SimpleImputer(strategy="most_frequent")),
+                                ("onehot", make_one_hot_encoder()),
+                            ]
+                        )
+                        transformers = []
+                        if numeric_features:
+                            transformers.append(("num", numeric_pipeline, numeric_features))
+                        if categorical_features:
+                            transformers.append(("cat", categorical_pipeline, categorical_features))
+
+                        preprocess = ColumnTransformer(transformers=transformers)
+                        if model_choice == "Random Forest Regressor":
+                            estimator = RandomForestRegressor(
+                                n_estimators=150,
+                                random_state=int(random_seed),
+                                n_jobs=-1,
+                            )
+                        else:
+                            estimator = LinearRegression()
+
+                        model = Pipeline(
+                            steps=[("preprocess", preprocess), ("model", estimator)]
+                        )
+                        X_train, X_test, y_train, y_test = train_test_split(
+                            X, y, test_size=test_size / 100,
+                            random_state=int(random_seed)
+                        )
+                        model.fit(X_train, y_train)
+                        predictions = model.predict(X_test)
+
+                        mae = mean_absolute_error(y_test, predictions)
+                        rmse = np.sqrt(mean_squared_error(y_test, predictions))
+                        r2 = r2_score(y_test, predictions)
+
+                        st.subheader("Hasil evaluasi")
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("MAE", f"{mae:.3f}")
+                        m2.metric("RMSE", f"{rmse:.3f}")
+                        m3.metric("R²", f"{r2:.3f}")
+                        st.caption(
+                            "MAE dan RMSE yang lebih kecil umumnya lebih baik. "
+                            "R² mendekati 1 menunjukkan model menjelaskan variasi target lebih baik; "
+                            "nilai negatif bisa terjadi dan berarti performa buruk pada data uji."
+                        )
+
+                        results = pd.DataFrame({
+                            "Nilai aktual": y_test.to_numpy(),
+                            "Hasil prediksi": predictions,
+                        })
+                        st.write("Perbandingan nilai aktual dan prediksi")
+                        st.dataframe(results.head(30), use_container_width=True)
+
+                        fig, ax = plt.subplots()
+                        ax.scatter(y_test, predictions, alpha=0.7)
+                        low = min(float(np.min(y_test)), float(np.min(predictions)))
+                        high = max(float(np.max(y_test)), float(np.max(predictions)))
+                        ax.plot([low, high], [low, high], linestyle="--")
+                        ax.set_xlabel("Nilai aktual")
+                        ax.set_ylabel("Nilai prediksi")
+                        ax.set_title("Aktual vs Prediksi")
+                        st.pyplot(fig)
+                        plt.close(fig)
+
+                        st.download_button(
+                            "Unduh hasil prediksi CSV",
+                            data=results.to_csv(index=False).encode("utf-8"),
+                            file_name="hasil_prediksi_kepuasan.csv",
+                            mime="text/csv",
+                        )
+
+with tab_unsupervised:
+    st.header("Clustering Teks Berita")
+    st.write(
+        "Teks berita diubah menjadi fitur TF-IDF, lalu dikelompokkan dengan K-Means. "
+        "Kolom `category_id`, jika tersedia, tidak digunakan untuk membentuk cluster; "
+        "kolom itu hanya opsional untuk membandingkan cluster dengan kategori asal."
+    )
+
+    news_upload = st.file_uploader(
+        "Unggah dataset berita CSV (opsional jika file sudah ada di GitHub)",
+        type=["csv"],
+        key="news_upload",
+    )
+    news_df = read_csv_safely(news_upload, UNSUPERVISED_PATH)
+
+    if news_df is None:
+        st.warning(
+            "Dataset berita belum ditemukan. Unggah `dataset_berita_cluster.csv` "
+            "di atas, atau tambahkan file tersebut ke repositori GitHub."
+        )
+    else:
+        st.success(f"Dataset dimuat: {news_df.shape[0]:,} baris dan {news_df.shape[1]} kolom.")
+        if "text" not in news_df.columns:
+            st.error("Kolom `text` tidak ditemukan. Periksa kembali dataset berita.")
+        else:
+            with st.expander("Lihat contoh teks berita"):
+                st.dataframe(news_df.head(5), use_container_width=True)
+
+            max_docs = st.slider(
+                "Jumlah berita yang diproses",
+                min_value=min(200, max(1, len(news_df))),
+                max_value=min(3000, len(news_df)),
+                value=min(1500, len(news_df)),
+                step=100 if len(news_df) >= 300 else 10,
+                help="Untuk mempercepat aplikasi, pemrosesan dibatasi. Naikkan jumlahnya jika diperlukan.",
+            )
+            n_clusters = st.slider(
+                "Jumlah cluster (K)",
+                min_value=2,
+                max_value=10,
+                value=4,
+                step=1,
+            )
+            max_features = st.select_slider(
+                "Batas fitur TF-IDF",
+                options=[1000, 2000, 3000, 5000],
+                value=2000,
+            )
+            seed = st.number_input(
+                "Random seed clustering",
+                min_value=0,
+                max_value=9999,
+                value=42,
+                step=1,
+                key="news_seed",
+            )
+
+            if st.button("🧩 Jalankan clustering berita", key="run_clustering"):
+                work = news_df[["text"] + (["category_id"] if "category_id" in news_df.columns else [])].copy()
+                work["text"] = work["text"].fillna("").astype(str).str.strip()
+                work = work[work["text"].str.len() > 0].head(int(max_docs)).reset_index(drop=True)
+
+                if len(work) <= n_clusters:
+                    st.error("Jumlah teks valid harus lebih banyak daripada jumlah cluster.")
+                else:
+                    with st.spinner("Mengubah teks menjadi TF-IDF dan menjalankan K-Means..."):
+                        vectorizer = TfidfVectorizer(
+                            stop_words="english",
+                            max_features=int(max_features),
+                            min_df=2,
+                            max_df=0.95,
+                        )
+                        try:
+                            matrix = vectorizer.fit_transform(work["text"])
+                            kmeans = KMeans(
+                                n_clusters=int(n_clusters),
+                                random_state=int(seed),
+                                n_init=10,
+                            )
+                            labels = kmeans.fit_predict(matrix)
+                            work["cluster"] = labels
+
+                            st.subheader("Ringkasan cluster")
+                            counts = work["cluster"].value_counts().sort_index()
+                            st.bar_chart(counts.rename("Jumlah berita"))
+
+                            try:
+                                sil_sample = min(1000, matrix.shape[0])
+                                if len(set(labels)) > 1 and sil_sample > n_clusters:
+                                    score = silhouette_score(
+                                        matrix, labels, sample_size=sil_sample,
+                                        random_state=int(seed)
+                                    )
+                                    st.metric("Silhouette score (sampel)", f"{score:.3f}")
+                                    st.caption("Skor lebih tinggi umumnya berarti cluster lebih terpisah; interpretasikan bersama contoh teks.")
+                            except Exception:
+                                st.info("Silhouette score tidak dapat dihitung untuk hasil ini.")
+
+                            if "category_id" in work.columns:
+                                try:
+                                    ari = adjusted_rand_score(work["category_id"], labels)
+                                    st.metric("Adjusted Rand Index vs category_id", f"{ari:.3f}")
+                                    st.caption(
+                                        "Ini hanya evaluasi pembanding menggunakan label kategori yang tersedia; "
+                                        "category_id tidak dipakai saat membentuk cluster."
+                                    )
+                                except Exception:
+                                    pass
+
+                            st.write("Contoh berita per cluster")
+                            for cluster_id in sorted(work["cluster"].unique()):
+                                with st.expander(f"Cluster {cluster_id} — {int((work['cluster'] == cluster_id).sum())} berita"):
+                                    examples = work.loc[work["cluster"] == cluster_id, "text"].head(3)
+                                    for i, article in enumerate(examples, start=1):
+                                        st.markdown(f"**Contoh {i}:** {article[:700]}{'…' if len(article) > 700 else ''}")
+
+                            # Proyeksi 2D untuk visualisasi; tidak digunakan untuk membentuk cluster.
+                            if matrix.shape[1] >= 2 and matrix.shape[0] >= 3:
+                                try:
+                                    projection = TruncatedSVD(n_components=2, random_state=int(seed)).fit_transform(matrix)
+                                    fig, ax = plt.subplots()
+                                    scatter = ax.scatter(
+                                        projection[:, 0], projection[:, 1],
+                                        c=labels, alpha=0.65, s=18
+                                    )
+                                    ax.set_title("Visualisasi cluster berita (proyeksi 2D)")
+                                    ax.set_xlabel("Komponen 1")
+                                    ax.set_ylabel("Komponen 2")
+                                    st.pyplot(fig)
+                                    plt.close(fig)
+                                except Exception:
+                                    st.info("Visualisasi 2D tidak tersedia untuk konfigurasi ini.")
+
+                            st.download_button(
+                                "Unduh hasil clustering CSV",
+                                data=work.to_csv(index=False).encode("utf-8"),
+                                file_name="hasil_clustering_berita.csv",
+                                mime="text/csv",
+                            )
+                        except ValueError as error:
+                            st.error(f"Clustering tidak dapat dijalankan: {error}")
+                            st.info("Coba kurangi jumlah cluster atau batas fitur TF-IDF.")
+
+with tab_about:
     st.header("Tentang aplikasi")
-    st.markdown("""
-**Supervised Learning**
-- Algoritma: Random Forest Classifier
-- Memerlukan kolom target berlabel
-- Evaluasi: Accuracy, Precision, Recall, F1-Score, dan Confusion Matrix
+    st.markdown(
+        """
+        **Supervised Learning**
+        - Target bawaan: `Satisfaction Score` (regresi).
+        - Algoritma: Random Forest Regressor atau Linear Regression.
+        - Evaluasi: MAE, RMSE, dan R².
 
-**Unsupervised Learning**
-- Algoritma: K-Means
-- Tidak memerlukan kolom target
-- Evaluasi: Silhouette Score, ringkasan cluster, dan scatter plot
+        **Unsupervised Learning**
+        - Fitur teks: kolom `text`.
+        - Representasi teks: TF-IDF.
+        - Algoritma: K-Means.
+        - Evaluasi: Silhouette Score; jika `category_id` tersedia, ARI ditampilkan sebagai pembanding.
 
-Nilai evaluasi bergantung pada dataset dan pembagian data; hasil tidak harus sama persis dengan mockup.
-""")
+        Hasil bergantung pada dataset dan parameter yang dipilih. Evaluasi pada data uji bukan jaminan performa pada data baru.
+        """
+    )
+    st.caption("Proyek 3 — Implementasi Antarmuka Machine Learning")

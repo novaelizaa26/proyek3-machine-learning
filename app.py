@@ -138,7 +138,10 @@ st.markdown(
 
 st.markdown('<div class="app-header">Machine Learning Experiment</div>', unsafe_allow_html=True)
 
-SUPERVISED_CANDIDATES = ["Customer_satisfaction_data_bersih.csv"]
+SUPERVISED_CANDIDATES = [
+    "Customer_satisfaction_data_bersih.csv",
+    "customer_satisfaction_data_bersih.csv",
+]
 UNSUPERVISED_CANDIDATES = ["dataset_berita_cluster.csv"]
 
 
@@ -153,15 +156,28 @@ def find_default_file(candidates, pattern):
     return matches[0] if matches else None
 
 
+def read_csv_auto(source):
+    """Baca CSV dan kenali pemisah otomatis (koma atau titik koma)."""
+    if hasattr(source, "getvalue"):
+        head = source.getvalue()[:4000].decode("utf-8-sig", errors="ignore")
+        source.seek(0)
+    else:
+        with open(source, encoding="utf-8-sig", errors="ignore") as f:
+            head = f.read(4000)
+    first_line = head.splitlines()[0] if head else ""
+    sep = ";" if first_line.count(";") > first_line.count(",") else ","
+    return pd.read_csv(source, sep=sep, encoding="utf-8-sig")
+
+
 @st.cache_data(show_spinner=False)
 def load_csv_path(path):
-    return pd.read_csv(path)
+    return read_csv_auto(path)
 
 
 def load_dataset(uploaded_file, candidates, pattern):
     """Kembalikan (dataframe, nama_file) dari unggahan atau file di repositori."""
     if uploaded_file is not None:
-        return pd.read_csv(uploaded_file), uploaded_file.name
+        return read_csv_auto(uploaded_file), uploaded_file.name
     path = find_default_file(candidates, pattern)
     if path:
         return load_csv_path(path), os.path.basename(path)
@@ -241,7 +257,7 @@ with tab_supervised:
                 help="Opsional jika file CSV sudah ada di repositori GitHub.",
             )
             customer_df, customer_name = load_dataset(
-                sup_upload, SUPERVISED_CANDIDATES, "customer_satisfaction*.csv"
+                sup_upload, SUPERVISED_CANDIDATES, "*atisfaction*bersih*.csv"
             )
 
             if customer_df is not None:
@@ -298,7 +314,7 @@ with tab_supervised:
             empty_state(
                 "Dataset pelanggan belum ditemukan",
                 "Unggah file CSV di panel Pengaturan, atau letakkan "
-                "<code>customer_satisfaction_data (1).csv</code> satu folder dengan app.py.",
+                "<code>Customer_satisfaction_data_bersih.csv</code> satu folder dengan app.py.",
             )
         else:
             section_title("Cuplikan Dataset")
@@ -610,7 +626,7 @@ with tab_unsupervised:
 
                         g1, g2 = st.columns([1.7, 1], gap="large")
                         with g1:
-                            st.markdown("**Scatter Plot **")
+                            st.markdown("**Scatter Plot**")
                             try:
                                 svd = TruncatedSVD(n_components=2, random_state=int(seed))
                                 projection = svd.fit_transform(matrix)
